@@ -53,57 +53,72 @@ export function WeatherMain({ selectedCity, isDarkMode }: WeatherMainProps) {
   // 當城市改變，向後端請求資料，並保留原本的 loading 與動畫體驗
   useEffect(() => {
     let cancelled = false
-    async function run() {
+
+    const startCountUp = (target: number) => {
+      // 模擬原本 500ms 的載入延遲，並做溫度數字遞增動畫
+      setTimeout(() => {
+        if (cancelled) return
+        setLoading(false)
+        let current = 0
+        const increment = target / 20
+        const countUp = setInterval(() => {
+          if (cancelled) {
+            clearInterval(countUp)
+            return
+          }
+          current += increment
+          if (current >= target) {
+            setDisplayTemp(target)
+            clearInterval(countUp)
+          } else {
+            setDisplayTemp(Math.floor(current))
+          }
+        }, 50)
+      }, 500)
+    }
+
+    ;(async () => {
       try {
         setError(null)
         setLoading(true)
         setDisplayTemp(0)
+
         const data = await fetchWeatherByCity(selectedCity)
         if (cancelled) return
+
         setApiData(data)
+
+        // 直接用此次請求取得的 data 計算目標溫度，避免讀取舊的 state
+        let target = weather.temp // 預設用 mock 值
+        const apiFirst = data?.data?.forecasts?.[0]
+        if (apiFirst) {
+          const parseNum = (s?: string) => {
+            if (!s) return NaN
+            const m = s.match(/-?\d+(?:\.\d+)?/)
+            return m ? Number(m[0]) : NaN
+          }
+          const min = parseNum(apiFirst.minTemp)
+          const max = parseNum(apiFirst.maxTemp)
+          const avg = isNaN(min) && isNaN(max)
+            ? NaN
+            : isNaN(min)
+              ? max
+              : isNaN(max)
+                ? min
+                : Math.round((min + max) / 2)
+          if (!isNaN(avg)) target = avg
+        }
+
+        startCountUp(target)
       } catch (e: any) {
         if (cancelled) return
         setError(e?.message || '取得天氣資料失敗')
         setApiData(null)
-      } finally {
-        if (cancelled) return
-        // 模擬原本 500ms 的載入延遲，並做溫度數字遞增動畫
-        setTimeout(() => {
-          setLoading(false)
-          let current = 0
-          let target = weather.temp // 預設用 mock 值，若有後端資料則用後端值
-          const apiFirst = apiData?.data?.forecasts?.[0]
-          if (apiFirst) {
-            const parseNum = (s?: string) => {
-              if (!s) return NaN
-              const m = s.match(/-?\d+(?:\.\d+)?/)
-              return m ? Number(m[0]) : NaN
-            }
-            const min = parseNum(apiFirst.minTemp)
-            const max = parseNum(apiFirst.maxTemp)
-            const avg = isNaN(min) && isNaN(max)
-              ? NaN
-              : isNaN(min)
-                ? max
-                : isNaN(max)
-                  ? min
-                  : Math.round((min + max) / 2)
-            if (!isNaN(avg)) target = avg
-          }
-          const increment = target / 20
-          const countUp = setInterval(() => {
-            current += increment
-            if (current >= target) {
-              setDisplayTemp(target)
-              clearInterval(countUp)
-            } else {
-              setDisplayTemp(Math.floor(current))
-            }
-          }, 50)
-        }, 500)
+        // 失敗時仍用 mock 值做動畫，維持體驗
+        startCountUp(weather.temp)
       }
-    }
-    run()
+    })()
+
     return () => { cancelled = true }
   }, [selectedCity, weather.temp])
 
